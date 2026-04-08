@@ -1,0 +1,10 @@
+{
+  "files.associations": {
+    "*.cebula": "plaintext"
+  },
+  "[plaintext]": {
+    "editor.formatOnPaste": false,
+    "editor.formatOnSave": false,
+    "editor.formatOnType": false
+  }
+}

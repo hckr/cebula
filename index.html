@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Cebula – piaskownica</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <h1>🧅 Cebula – piaskownica</h1>
+
+    <button class="run" id="run-btn">▶ Kompiluj i uruchom</button>
+
+    <div class="container">
+      <div id="editor-container"></div>
+      <iframe id="output"></iframe>
+    </div>
+
+    <script type="module">
+      const LIB_VERSIONS = {
+        ohm: '17',
+        monaco: '0.52.0',
+      };
+
+      function loadScript(url) {
+        return new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = url;
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+
+      await loadScript(
+        `https://unpkg.com/ohm-js@${LIB_VERSIONS.ohm}/dist/ohm.min.js`,
+      );
+      await loadScript(
+        `https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/${LIB_VERSIONS.monaco}/min/vs/loader.min.js`,
+      );
+
+      require.config({
+        paths: {
+          vs: `https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/${LIB_VERSIONS.monaco}/min/vs`,
+        },
+      });
+
+      import CebulaEngine from './engine.js';
+      import CebulaEditor from './editor.js';
+
+      const [grammar, sampleCode] = await Promise.all([
+        fetch('cebula.ohm').then((r) => r.text()),
+        fetch('example.cebula').then((r) => r.text()),
+      ]);
+
+      CebulaEngine.init(grammar);
+      CebulaEditor.init('editor-container', sampleCode, CebulaEngine);
+
+      document.getElementById('run-btn').addEventListener('click', () => {
+        const result = CebulaEngine.compile(CebulaEditor.editor.getValue());
+        const iframe = document.getElementById('output');
+
+        if (!result.success) {
+          iframe.srcdoc = result.error;
+          return;
+        }
+
+        iframe.src = '';
+        iframe.addEventListener(
+          'load',
+          () => {
+            const script =
+              iframe.contentWindow.document.createElement('script');
+            script.textContent = `
+              ${result.jsCode}
+              ReactDOM.createRoot(document.getElementById('root')).render(
+                React.createElement(Module_główny, {})
+              );
+            `;
+            iframe.contentWindow.document.body.appendChild(script);
+          },
+          { once: true },
+        );
+        iframe.src = 'iframe.html';
+      });
+    </script>
+  </body>
+</html>

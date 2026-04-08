@@ -1,0 +1,114 @@
+Cebula {
+    Program = Module+
+    Module  = "moduł" ident "{" LayerData LayerView LayerLogic "}"
+
+    LayerData  = "warstwa" "danych"  "{" DataStatement*  "}"
+    LayerView  = "warstwa" "widoku"  "{" ViewStatement*  "}"
+    LayerLogic = "warstwa" "logiki"  "{" LogicStatement* "}"
+
+    DataStatement = StanyDecl | ParamDecl | VarDecl
+    StanyDecl = "stany"     ident ":" "[" ListOf<ident, ","> "]"
+    ParamDecl = "parametr"  ident
+    VarDecl   = "zmienna"   ident "to" Exp
+
+    ViewStatement = "szablon" "główny" "to" Exp -- main
+                    | "szablon" ident    "to" Exp -- other
+
+    LogicStatement = PrintStmt | AssignStmt | IfStmt | ActionDef | CallStmt
+                   | EfektStmt | OpóźnijStmt | CyklicznieStmt
+
+    PrintStmt = "wypisz" "(" Exp ")"
+
+    AssignStmt = "ustaw" MemberAccessExp "na" Exp -- memberAcc
+                | "ustaw" ident           "na" Exp -- simpleIdent
+
+    IfStmt    = "jeśli" Exp "{" LogicStatement* "}" ElseClause?
+    ElseClause = "inaczej" "{" LogicStatement* "}"
+
+    ActionDef = "akcja"   ident "{" LogicStatement* "}"
+    CallStmt  = "wywołaj" ident
+
+    // ── Timers ──────────────────────────────────────────────
+    EfektStmt      = "efekt"      "{" LogicStatement* "}"
+    OpóźnijStmt    = "opóźnij"   "(" Exp "," ident ")"
+    CyklicznieStmt = "cyklicznie" "(" Exp "," ident ")"
+
+    Exp     = CompExp
+    CompExp = AddExp "==" AddExp -- eq
+            | AddExp "to" AddExp -- toEq
+            | AddExp ">"  AddExp -- gt
+            | AddExp "<"  AddExp -- lt
+            | AddExp
+
+    AddExp = AddExp "+" MulExp -- plus
+            | AddExp "-" MulExp -- minus
+            | MulExp
+
+    MulExp = MulExp "*" PriExp -- times
+            | MulExp "/" PriExp -- divide
+            | PriExp
+
+    PriExp = RozciągnijExp | WierszExp | KolumnaExp | MatchExp | UseModuleExp | ViewRef
+            | ButtonExp | HeaderExp | AkapitExp | BoldExp | ColorExp | ChooseExp
+            | StylExp
+            | InputExp | RadioExp | CheckboxExp
+            | ObjectLiteral | ArrayExp | string | number | BoolExp | NicExp | MemberAccessExp | ident | BrakExp | ParenExp
+
+    NicExp    = "nic"
+    BoolExp   = "Prawda" | "Fałsz" | "prawda" | "fałsz"
+    BrakExp   = "brak"
+    ParenExp  = "(" Exp ")"
+    ArrayExp  = "[" ListOf<Exp, ","> "]"
+
+    WierszExp  = "wiersz"   "(" ObjectLiteral "," ArrayExp ")" -- props
+                | "wiersz"   "(" ArrayExp ")"                  -- simple
+    KolumnaExp = "kolumna"  "(" ObjectLiteral "," ArrayExp ")" -- props
+                | "kolumna"  "(" ArrayExp ")"                  -- simple
+    RozciągnijExp = "rozciągnij" "(" ObjectLiteral "," Exp ")"
+
+    MatchExp      = "dopasuj" Exp "{" MatchCase* OtherwiseCase? "}"
+    MatchCase     = "gdy"    Exp ":" Exp ","?
+    OtherwiseCase = "inaczej" ":" Exp ","?
+
+    UseModuleExp  = "użyj" ident "z" Exp
+    ObjectLiteral = "{" ListOf<KeyValuePair, ","> "}"
+    KeyValuePair  = (ident | string) ":" Exp
+    MemberAccessExp = ident ("." ident)+
+
+    ActionIdent = ident
+    ActionRef   = ActionIdent | BrakExp
+
+    ButtonExp = "przycisk" "(" Exp "," ActionRef "," Exp ")" -- props
+                | "przycisk" "(" Exp "," ActionRef ")"       -- simple
+
+    ViewRef    = "widok"       "(" ident ")"
+    HeaderExp  = "nagłówek"    "(" Exp "," Exp ")"
+    AkapitExp  = "akapit"      "(" Exp ")"
+    BoldExp    = "pogrubienie" "(" Exp ")"
+    ColorExp   = "kolor"       "(" Exp "," Exp ")"
+    ChooseExp  = "wybierz"     "(" Exp "," Exp "," Exp ")"
+
+    // ── Style wrapper ────────────────────────────────────────
+    StylExp = "styl" "(" ObjectLiteral "," Exp ")"
+
+    InputExp    = "poleTekstowe"      "(" Exp "," ident ")"
+    RadioExp    = "jednokrotnyWybór"  "(" Exp "," ObjectLiteral "," ident ")"
+    CheckboxExp = "poleZgody"         "(" Exp "," ident ")"
+
+    idChar  = alnum | "_" | "ó" | "ł" | "ą" | "ę" | "ś" | "ć" | "ź" | "ż" | "ń"
+                    | "Ó" | "Ł" | "Ą" | "Ę" | "Ś" | "Ć" | "Ź" | "Ż" | "Ń"
+    ident   = ~(keyword ~idChar) idChar+
+    keyword = "moduł" | "warstwa" | "danych" | "widoku" | "logiki"
+            | "zmienna" | "to" | "szablon" | "wypisz"
+            | "jeśli" | "inaczej" | "akcja" | "przycisk" | "wywołaj"
+            | "widok" | "kolor" | "wybierz" | "brak" | "parametr" | "użyj" | "z"
+            | "stany" | "dopasuj" | "gdy" | "wiersz" | "kolumna" | "rozciągnij"
+            | "ustaw" | "na" | "akapit" | "nic" | "poleTekstowe"
+            | "jednokrotnyWybór" | "poleZgody"
+            | "efekt" | "opóźnij" | "cyklicznie" | "styl"
+
+    number = digit+ ("." digit+)?
+    string = "\"" (~"\"" any)* "\""
+    space += comment
+    comment = "//" (~"\n" any)* "\n"
+}
