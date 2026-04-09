@@ -44,7 +44,6 @@ function _tokenize(src) {
 }
 
 // ── Formatter ────────────────────────────────────────────────────────────────
-// Keywords that introduce a new statement and should start on a fresh line.
 const STMT_KW = new Set([
   'moduł',
   'warstwa',
@@ -58,18 +57,58 @@ const STMT_KW = new Set([
   'ustaw',
   'wypisz',
   'wywołaj',
-  'efekt',
   'opóźnij',
   'cyklicznie',
+  'anuluj',
 ]);
+
+// ── Multi-line container detection ───────────────────────────────────────────
+// Scans forward from the token *after* an opening bracket to determine whether
+// the container should be formatted across multiple lines.
+//
+// For { } objects:  multi-line when there are 2+ key-value pairs (2+ colons at depth 1).
+// For [ ] arrays:   multi-line when there are 2+ elements AND at least one element
+//                   is complex (contains a nested call or object — i.e. a '(' or '{').
+//
+// Both rules use the same scan; the caller decides which metric to evaluate.
+
+function _scanContainer(tokens, startIdx, closerType) {
+  let depth = 1;
+  let commaCount = 0; // separators at depth 1
+  let colonCount = 0; // object key:value colons at depth 1
+  let hasComplex = false; // any ( or { found at depth 2
+  for (let i = startIdx + 1; i < tokens.length && depth > 0; i++) {
+    const t = tokens[i];
+    if (t.type === 'lbrace' || t.type === 'lparen' || t.type === 'lbracket') {
+      depth++;
+      if (depth === 2) hasComplex = true;
+    } else if (
+      t.type === 'rbrace' ||
+      t.type === 'rparen' ||
+      t.type === 'rbracket'
+    ) {
+      depth--;
+    } else if (depth === 1) {
+      if (t.type === 'comma') commaCount++;
+      if (t.type === 'colon') colonCount++;
+    }
+  }
+  if (closerType === 'rbrace') return colonCount >= 2;
+  if (closerType === 'rbracket') return commaCount >= 1 && hasComplex;
+  return false;
+}
 
 function _formatCebula(src) {
   const tokens = _tokenize(src);
-  const IND = '    ';
+  const IND = '  ';
 
   let out = '';
-  let brace = 0; // depth of statement blocks  { }
-  let paren = 0; // depth of expression context ( ) [ ] { }
+  let brace = 0; // indentation depth — incremented by both block braces and multi-line containers
+  let paren = 0; // total expression nesting depth: (, [, { in expressions
+
+  // Unified stack for expression-level containers ({ } and [ ]).
+  // Each entry: { multi: bool, parenDepth: number (paren value before the opener was consumed) }
+  const exprContainerStack = [];
 
   const ind = () => IND.repeat(brace);
   const nl = () => {
@@ -79,13 +118,12 @@ function _formatCebula(src) {
   const sp = () => {
     if (out.length && !/[ \n]$/.test(out)) out += ' ';
   };
-  const noSpc = () => out.trimEnd() === out; // true when no trailing space
 
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
     const nxt = tokens[i + 1];
 
-    // ── Comments ────────────────────────────────────────────
+    // ── Comments ─────────────────────────────────────────────────────────
     if (tok.type === 'comment') {
       if (!/\n$/.test(out)) nl();
       out += tok.value;
@@ -93,7 +131,7 @@ function _formatCebula(src) {
       continue;
     }
 
-    // ── Block braces (only at paren depth 0) ────────────────
+    // ── Block-level braces { } (paren === 0 means we're at statement level) ──
     if (tok.type === 'lbrace' && paren === 0) {
       sp();
       out += '{';
@@ -106,23 +144,58 @@ function _formatCebula(src) {
       out = out.trimEnd();
       out += '\n' + ind() + '}';
       const nextIsInaczej = nxt?.type === 'word' && nxt.value === 'inaczej';
-      const nextIsRbrace = nxt?.type === 'rbrace';
-      if (!nextIsInaczej && !nextIsRbrace && nxt) nl();
+      if (!nextIsInaczej && nxt?.type !== 'rbrace' && nxt) nl();
       continue;
     }
 
-    // ── Expression grouping ─────────────────────────────────
+    // ── Expression { } (object literal) ──────────────────────────────────
     if (tok.type === 'lbrace') {
+      const multi = _scanContainer(tokens, i, 'rbrace');
+      exprContainerStack.push({ multi, parenDepth: paren });
       paren++;
       sp();
       out += '{';
+      if (multi) {
+        brace++;
+        nl();
+      }
       continue;
     }
     if (tok.type === 'rbrace') {
       paren--;
-      out += '}';
+      const entry = exprContainerStack.pop() || { multi: false };
+      if (entry.multi) {
+        brace--;
+        out = out.trimEnd();
+        out += '\n' + ind() + '}';
+      } else out += '}';
       continue;
     }
+
+    // ── Expression [ ] (array) ────────────────────────────────────────────
+    if (tok.type === 'lbracket') {
+      const multi = _scanContainer(tokens, i, 'rbracket');
+      exprContainerStack.push({ multi, parenDepth: paren });
+      paren++;
+      out += '[';
+      if (multi) {
+        brace++;
+        nl();
+      }
+      continue;
+    }
+    if (tok.type === 'rbracket') {
+      paren--;
+      const entry = exprContainerStack.pop() || { multi: false };
+      if (entry.multi) {
+        brace--;
+        out = out.trimEnd();
+        out += '\n' + ind() + ']';
+      } else out += ']';
+      continue;
+    }
+
+    // ── ( ) ───────────────────────────────────────────────────────────────
     if (tok.type === 'lparen') {
       paren++;
       out += '(';
@@ -133,21 +206,20 @@ function _formatCebula(src) {
       out += ')';
       continue;
     }
-    if (tok.type === 'lbracket') {
-      paren++;
-      out += '[';
-      continue;
-    }
-    if (tok.type === 'rbracket') {
-      paren--;
-      out += ']';
-      continue;
-    }
 
-    // ── Punctuation ─────────────────────────────────────────
+    // ── Punctuation ───────────────────────────────────────────────────────
     if (tok.type === 'comma') {
       out += ',';
-      sp();
+      // Check whether we're directly inside a multi-line container.
+      const top =
+        exprContainerStack.length > 0
+          ? exprContainerStack[exprContainerStack.length - 1]
+          : null;
+      if (top && top.multi && paren === top.parenDepth + 1) {
+        nl();
+      } else {
+        sp();
+      }
       continue;
     }
     if (tok.type === 'colon') {
@@ -166,20 +238,16 @@ function _formatCebula(src) {
       continue;
     }
 
-    // ── Statement keywords (at block level only) ────────────
+    // ── Statement keywords (only at block level) ──────────────────────────
     if (tok.type === 'word' && STMT_KW.has(tok.value) && paren === 0) {
       const endsWithBrace = out.trimEnd().endsWith('}');
-      if (tok.value === 'inaczej' && endsWithBrace) {
-        // `} inaczej {` — keep on same line
-        sp();
-      } else if (out.length > 0) {
-        nl();
-      }
+      if (tok.value === 'inaczej' && endsWithBrace) sp();
+      else if (out.length > 0) nl();
       out += tok.value;
       continue;
     }
 
-    // ── Everything else ─────────────────────────────────────
+    // ── Everything else ───────────────────────────────────────────────────
     if (!/[ \n(\[.]$/.test(out) && out.length > 0) sp();
     out += tok.value;
   }
@@ -211,16 +279,45 @@ const CebulaEditor = {
         },
       });
 
+      // ── CSS property autocomplete ────────────────────────
+      const cssProps = engine.getCSSProperties();
+      monaco.languages.registerCompletionItemProvider('cebula', {
+        triggerCharacters: ['{', ',', '\n', ' '],
+        provideCompletionItems(model, position) {
+          const line = model.getLineContent(position.lineNumber);
+          const beforeCursor = line.slice(0, position.column - 1).trimStart();
+
+          // Only suggest inside object literals (heuristic: line starts with
+          // a word that could be a property, or we're after a comma in such context)
+          const inObject =
+            /^\s*$/.test(beforeCursor) ||
+            /[{,]\s*$/.test(beforeCursor) ||
+            /^[a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ_]*$/.test(beforeCursor);
+          if (!inObject) return { suggestions: [] };
+
+          const range = {
+            startLineNumber: position.lineNumber,
+            endLineNumber: position.lineNumber,
+            startColumn: position.column,
+            endColumn: position.column,
+          };
+          const suggestions = Object.entries(cssProps).map(([polish, css]) => ({
+            label: polish,
+            kind: monaco.languages.CompletionItemKind.Property,
+            insertText: polish + ': ',
+            detail: css,
+            documentation: `CSS: ${css}`,
+            range,
+          }));
+          return { suggestions };
+        },
+      });
+
       // ── Auto-formatter ───────────────────────────────────
       monaco.languages.registerDocumentFormattingEditProvider('cebula', {
         provideDocumentFormattingEdits(model) {
           const formatted = _formatCebula(model.getValue());
-          return [
-            {
-              range: model.getFullModelRange(),
-              text: formatted,
-            },
-          ];
+          return [{ range: model.getFullModelRange(), text: formatted }];
         },
       });
 

@@ -4,167 +4,17 @@
     <meta charset="UTF-8" />
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <link rel="stylesheet" href="runtime.css" />
   </head>
   <body style="margin: 0; font-family: sans-serif">
-    <div id="root" style="height:100vh;display:flex;flex-direction:column;overflow:auto"></div>
-    <script>
-      // ── Style map: Polish property names → CSS ──────────────────────────
-      const _sm = (opts) => {
-        if (!opts) return {};
-        const map = {
-          // Layout
-          tło:                  'background',
-          wypełnienie:          'padding',
-          wypełnienieGóra:      'paddingTop',
-          wypełnienieDół:       'paddingBottom',
-          wypełnienieLewo:      'paddingLeft',
-          wypełnieniePrawo:     'paddingRight',
-          margines:             'margin',
-          marginesGóra:         'marginTop',
-          marginesDół:          'marginBottom',
-          marginesLewo:         'marginLeft',
-          marginesPrawo:        'marginRight',
-          odstęp:               'gap',
-          proporcja:            'flex',
-          szerokość:            'width',
-          minSzerokość:         'minWidth',
-          maxSzerokość:         'maxWidth',
-          wysokość:             'height',
-          minWysokość:          'minHeight',
-          maxWysokość:          'maxHeight',
-          wyrównanieElementów:  'alignItems',
-          wyrównanieZawartości: 'justifyContent',
-          zawijanie:            'flexWrap',
-          pozycja:              'position',
-          góra:                 'top',
-          dół:                  'bottom',
-          lewo:                 'left',
-          prawo:                'right',
-          przepełnienie:        'overflow',
-          wyświetlanie:         'display',
-          zIndex:               'zIndex',
-          // Typography
-          kolor:                'color',
-          czcionka:             'fontSize',
-          rodzinaCzcionki:      'fontFamily',
-          grubośćCzcionki:      'fontWeight',
-          stylCzcionki:         'fontStyle',
-          wyrównanieTekstu:     'textAlign',
-          dekoracjaTekstu:      'textDecoration',
-          wysokośćLinii:        'lineHeight',
-          odstępLiter:          'letterSpacing',
-          // Borders & effects
-          ramka:                'border',
-          ramkaGóra:            'borderTop',
-          ramkaDół:             'borderBottom',
-          ramkaLewo:            'borderLeft',
-          ramkaPrawo:           'borderRight',
-          zaokrąglenie:         'borderRadius',
-          cień:                 'boxShadow',
-          przezroczystość:      'opacity',
-          // Misc
-          kursor:               'cursor',
-          transformacja:        'transform',
-          przejście:            'transition',
-        };
-        const s = {};
-        Object.entries(opts).forEach(([k, v]) => {
-          s[map[k] ?? k] = v;
-        });
-        return s;
-      };
-
-      // ── Layout helpers ──────────────────────────────────────────────────
-      const _row = (opts, kids) =>
-        React.createElement(
-          'div',
-          { style: { display: 'flex', flexDirection: 'row', ..._sm(opts) } },
-          ...kids.filter((k) => k != null),
-        );
-
-      const _col = (opts, kids) =>
-        React.createElement(
-          'div',
-          { style: { display: 'flex', flexDirection: 'column', ..._sm(opts) } },
-          ...kids.filter((k) => k != null),
-        );
-
-      const _stretch = (opts, child) =>
-        React.createElement('div', { style: _sm(opts) }, child);
-
-      // ── Style wrapper ───────────────────────────────────────────────────
-      // Wraps any element with arbitrary styles.
-      // Use display:'inline' or display:'inline-block' for inline content.
-      const _styl = (opts, child) =>
-        React.createElement('div', { style: _sm(opts) }, child);
-
-      // ── Button ──────────────────────────────────────────────────────────
-      const _btn = (txt, act, opts) =>
-        React.createElement(
-          'button',
-          {
-            onClick: act || null,
-            style: {
-              padding: '10px 15px',
-              cursor: 'pointer',
-              borderRadius: '6px',
-              color: 'white',
-              border: 'none',
-              fontWeight: 'bold',
-              background: (opts && opts.tło) || '#7b9c46',
-              ..._sm(opts),
-            },
-          },
-          txt,
-        );
-
-      // ── Form inputs ─────────────────────────────────────────────────────
-      const _input = (label, val, setter) =>
-        React.createElement(
-          'label',
-          { style: { display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '14px', color: '#333' } },
-          React.createElement('b', null, label),
-          React.createElement('input', {
-            type: 'text',
-            value: val || '',
-            onChange: (e) => setter(e.target.value),
-            style: { padding: '8px', borderRadius: '4px', border: '1px solid #ccc' },
-          }),
-        );
-
-      const _radio = (label, opts, groupName, val, setter) =>
-        React.createElement(
-          'div',
-          { style: { display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '14px', color: '#333' } },
-          React.createElement('b', null, label),
-          React.createElement(
-            'div',
-            { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } },
-            ...Object.entries(opts).map(([k, v]) =>
-              React.createElement(
-                'label',
-                { key: k, style: { display: 'flex', gap: '5px', alignItems: 'center', cursor: 'pointer' } },
-                React.createElement('input', {
-                  type: 'radio', name: groupName, value: v,
-                  checked: v === val,
-                  onChange: (e) => setter(e.target.value),
-                }),
-                k,
-              ),
-            ),
-          ),
-        );
-
-      const _checkbox = (label, val, setter) =>
-        React.createElement(
-          'label',
-          { style: { display: 'flex', gap: '5px', alignItems: 'center', fontSize: '14px', color: '#333', cursor: 'pointer' } },
-          React.createElement('input', {
-            type: 'checkbox', checked: !!val,
-            onChange: (e) => setter(e.target.checked),
-          }),
-          React.createElement('b', null, label),
-        );
-    </script>
+    <div
+      id="root"
+      style="
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: auto;
+      "
+    ></div>
   </body>
 </html>

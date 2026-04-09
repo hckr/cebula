@@ -7,7 +7,7 @@ Cebula {
     LayerLogic = "warstwa" "logiki"  "{" LogicStatement* "}"
 
     DataStatement = StanyDecl | ParamDecl | VarDecl
-    StanyDecl = "stany"     ident ":" "[" ListOf<ident, ","> "]"
+    StanyDecl = "stany"     ident ":" "[" ListOf<ident, ","> ","? "]"
     ParamDecl = "parametr"  ident
     VarDecl   = "zmienna"   ident "to" Exp
 
@@ -15,7 +15,7 @@ Cebula {
                     | "szablon" ident    "to" Exp -- other
 
     LogicStatement = PrintStmt | AssignStmt | IfStmt | ActionDef | CallStmt
-                   | EfektStmt | OpóźnijStmt | CyklicznieStmt
+                   | OpóźnijStmt | CyklicznieStmt | AnulujStmt
 
     PrintStmt = "wypisz" "(" Exp ")"
 
@@ -28,10 +28,9 @@ Cebula {
     ActionDef = "akcja"   ident "{" LogicStatement* "}"
     CallStmt  = "wywołaj" ident
 
-    // ── Timers ──────────────────────────────────────────────
-    EfektStmt      = "efekt"      "{" LogicStatement* "}"
     OpóźnijStmt    = "opóźnij"   "(" Exp "," ident ")"
     CyklicznieStmt = "cyklicznie" "(" Exp "," ident ")"
+    AnulujStmt     = "anuluj"     "(" Exp ")"
 
     Exp     = CompExp
     CompExp = AddExp "==" AddExp -- eq
@@ -48,17 +47,18 @@ Cebula {
             | MulExp "/" PriExp -- divide
             | PriExp
 
-    PriExp = RozciągnijExp | WierszExp | KolumnaExp | MatchExp | UseModuleExp | ViewRef
+    PriExp = DlaKażdegoExp | CyklicznieExp | OpóźnijExp
+            | RozciągnijExp | WierszExp | KolumnaExp | MatchExp | UseModuleExp | ViewRef
             | ButtonExp | HeaderExp | AkapitExp | BoldExp | ColorExp | ChooseExp
-            | StylExp
-            | InputExp | RadioExp | CheckboxExp
+            | StylExp | ZakresExp
+            | InputExp | PasswordExp | RadioExp | CheckboxExp
             | ObjectLiteral | ArrayExp | string | number | BoolExp | NicExp | MemberAccessExp | ident | BrakExp | ParenExp
 
     NicExp    = "nic"
-    BoolExp   = "Prawda" | "Fałsz" | "prawda" | "fałsz"
+    BoolExp   = "prawda" | "fałsz"
     BrakExp   = "brak"
     ParenExp  = "(" Exp ")"
-    ArrayExp  = "[" ListOf<Exp, ","> "]"
+    ArrayExp  = "[" ListOf<Exp, ","> ","? "]"
 
     WierszExp  = "wiersz"   "(" ObjectLiteral "," ArrayExp ")" -- props
                 | "wiersz"   "(" ArrayExp ")"                  -- simple
@@ -71,9 +71,9 @@ Cebula {
     OtherwiseCase = "inaczej" ":" Exp ","?
 
     UseModuleExp  = "użyj" ident "z" Exp
-    ObjectLiteral = "{" ListOf<KeyValuePair, ","> "}"
-    KeyValuePair  = (ident | string) ":" Exp
-    MemberAccessExp = ident ("." ident)+
+    ObjectLiteral = "{" ListOf<KeyValuePair, ","> ","? "}"
+    KeyValuePair  = (propName | string) ":" Exp
+    MemberAccessExp = ident ("." propName)+
 
     ActionIdent = ident
     ActionRef   = ActionIdent | BrakExp
@@ -87,14 +87,24 @@ Cebula {
     BoldExp    = "pogrubienie" "(" Exp ")"
     ColorExp   = "kolor"       "(" Exp "," Exp ")"
     ChooseExp  = "wybierz"     "(" Exp "," Exp "," Exp ")"
+    ZakresExp  = "zakres" "(" Exp "," Exp ")" -- double
+               | "zakres" "(" Exp ")"         -- single
 
-    // ── Style wrapper ────────────────────────────────────────
     StylExp = "styl" "(" ObjectLiteral "," Exp ")"
 
-    InputExp    = "poleTekstowe"      "(" Exp "," ident ")"
+    InputExp    = "poleTekstowe"      "(" Exp "," ident "," Exp ")" -- props
+                | "poleTekstowe"      "(" Exp "," ident ")"         -- simple
+    PasswordExp = "poleMaskowane"     "(" Exp "," ident "," Exp ")" -- props
+                | "poleMaskowane"     "(" Exp "," ident ")"         -- simple
     RadioExp    = "jednokrotnyWybór"  "(" Exp "," ObjectLiteral "," ident ")"
-    CheckboxExp = "poleZgody"         "(" Exp "," ident ")"
+    CheckboxExp = "polePtaszek"       "(" Exp "," ident ")"
 
+    DlaKażdegoExp = "dla" "każdego" ident "z" Exp ":" Exp
+
+    CyklicznieExp = "cyklicznie" "(" Exp "," ident ")"
+    OpóźnijExp    = "opóźnij"   "(" Exp "," ident ")"
+
+    propName = idChar+
     idChar  = alnum | "_" | "ó" | "ł" | "ą" | "ę" | "ś" | "ć" | "ź" | "ż" | "ń"
                     | "Ó" | "Ł" | "Ą" | "Ę" | "Ś" | "Ć" | "Ź" | "Ż" | "Ń"
     ident   = ~(keyword ~idChar) idChar+
@@ -103,10 +113,10 @@ Cebula {
             | "jeśli" | "inaczej" | "akcja" | "przycisk" | "wywołaj"
             | "widok" | "kolor" | "wybierz" | "brak" | "parametr" | "użyj" | "z"
             | "stany" | "dopasuj" | "gdy" | "wiersz" | "kolumna" | "rozciągnij"
-            | "ustaw" | "na" | "akapit" | "nic" | "poleTekstowe"
-            | "jednokrotnyWybór" | "poleZgody"
-            | "efekt" | "opóźnij" | "cyklicznie" | "styl"
-
+            | "ustaw" | "na" | "akapit" | "nic" | "poleTekstowe" | "poleMaskowane"
+            | "jednokrotnyWybór" | "polePtaszek" | "zakres"
+            | "opóźnij" | "cyklicznie" | "anuluj" | "styl"
+            | "dla" | "każdego" | "prawda" | "fałsz"
     number = digit+ ("." digit+)?
     string = "\"" (~"\"" any)* "\""
     space += comment

@@ -60,27 +60,31 @@
         const iframe = document.getElementById('output');
 
         if (!result.success) {
+          // Show error. Remove src so srcdoc takes precedence unambiguously.
+          iframe.removeAttribute('src');
           iframe.srcdoc = result.error;
           return;
         }
 
-        iframe.src = '';
+        // Success: clear srcdoc first, otherwise the browser may ignore src.
+        iframe.removeAttribute('srcdoc');
         iframe.addEventListener(
           'load',
           () => {
             const script =
               iframe.contentWindow.document.createElement('script');
             script.textContent = `
-              ${result.jsCode}
+              const CebulaApp = ${result.jsCode};
               ReactDOM.createRoot(document.getElementById('root')).render(
-                React.createElement(Module_główny, {})
+                React.createElement(CebulaApp, {})
               );
             `;
             iframe.contentWindow.document.body.appendChild(script);
           },
           { once: true },
         );
-        iframe.src = 'iframe.html';
+        // Append timestamp to force a fresh navigation even if src was already 'iframe.html'.
+        iframe.src = 'iframe.html?' + Date.now();
       });
     </script>
   </body>

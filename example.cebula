@@ -1,78 +1,189 @@
 moduł główny {
-    warstwa danych {
-        stany Strona: [Start, Kontakt]
-        zmienna aktywna to Strona.Start
-    }
+  warstwa danych {
+    stany Strona: [Start, Formularz, Licznik, Lista]
+    zmienna aktywna to Strona.Start
+  }
 
-    warstwa widoku {
-        szablon nawigacja to kolumna({ tło: "#eee", wypełnienie: "10px", odstęp: "10px" }, [
-            przycisk("Start", doStartu),
-            przycisk("Kontakt", doKontaktu)
-        ])
+  warstwa widoku {
+    szablon nawigacja to kolumna({ tło: "#1e1e1e", wypełnienie: "12px", odstęp: "8px", minSzerokość: "140px" }, [
+      styl({ margines: "0 0 12px 0" }, nagłówek(2, "🧅 Cebula")),
+      przycisk("Start",     doStartu,     { tło: wybierz(aktywna to Strona.Start,     "#5a7d2a", "#444") }),
+      przycisk("Formularz", doFormularza, { tło: wybierz(aktywna to Strona.Formularz, "#5a7d2a", "#444") }),
+      przycisk("Licznik",   doLicznika,   { tło: wybierz(aktywna to Strona.Licznik,   "#5a7d2a", "#444") }),
+      przycisk("Lista",     doListy ,     { tło: wybierz(aktywna to Strona.Lista,     "#5a7d2a", "#444") })
+    ])
 
-        szablon główny to wiersz([
-            nawigacja,
-            rozciągnij({ proporcja: 1, wypełnienie: "20px" }, dopasuj aktywna {
-                gdy Strona.Start:   użyj TreśćStart   z {},
-                gdy Strona.Kontakt: użyj TreśćKontakt z {}
-            })
-        ])
-    }
+    szablon główny to wiersz([
+      widok(nawigacja),
+      rozciągnij({ proporcja: 1, wypełnienie: "24px", przepełnienie: "auto" }, dopasuj aktywna {
+        gdy Strona.Start:     użyj TreśćStart     z {}
+        gdy Strona.Formularz: użyj TreśćFormularz z {}
+        gdy Strona.Licznik:   użyj TreśćLicznik   z { startWartość: 0 }
+        gdy Strona.Lista:     użyj TreśćLista     z {}
+      })
+    ])
+  }
 
-    warstwa logiki {
-        akcja doStartu   { ustaw aktywna na Strona.Start }
-        akcja doKontaktu { ustaw aktywna na Strona.Kontakt }
-    }
+  warstwa logiki {
+    akcja doStartu     { ustaw aktywna na Strona.Start }
+    akcja doFormularza { ustaw aktywna na Strona.Formularz }
+    akcja doLicznika   { ustaw aktywna na Strona.Licznik }
+    akcja doListy      { ustaw aktywna na Strona.Lista }
+  }
 }
 
 moduł TreśćStart {
-    warstwa danych {}
-    warstwa widoku {
-        szablon główny to kolumna({ odstęp: "10px" }, [
-            nagłówek(1, "Witaj w Cebuli!"),
-            akapit("Cebula ma warstwy. Ta strona też ma warstwy.")
+  warstwa danych { zmienna widoczny to fałsz }
+
+  warstwa widoku {
+    szablon ptaszek to kolor("#5a7d2a", "✓ ")
+
+    szablon główny to kolumna({ odstęp: "16px", maxSzerokość: "600px" }, [
+      nagłówek(1, "Witaj w Cebuli!"),
+      akapit(wybierz(widoczny, "Cebula to polski język programowania.", " ")),
+      przycisk(wybierz(widoczny, "Ukryj opis", "Pokaż opis"), przełącz),
+      styl({ tło: "#f0f7e6", obramowanie: "1px solid #c8e6a0", zaokrąglenie: "8px", wypełnienie: "16px" }, 
+        kolumna({ odstęp: "8px" }, [
+          akapit(pogrubienie("Funkcje:")),
+          dla każdego tekst z ["zmienne", "szablony", "walidacja", "timery"]: akapit(ptaszek + tekst)
         ])
-    }
-    warstwa logiki {}
+      )
+    ])
+  }
+
+  warstwa logiki {
+    akcja przełącz { ustaw widoczny na wybierz(widoczny, fałsz, prawda) }
+  }
 }
 
-moduł TreśćKontakt {
-    warstwa danych {
-        stany Płeć: [Kobieta, Mężczyzna]
-        zmienna imię       to ""
-        zmienna email      to ""
-        zmienna płeć       to nic
-        zmienna zgoda      to Fałsz
-        zmienna komunikat  to ""
+moduł TreśćFormularz {
+  warstwa danych {
+    stany Płeć: [Kobieta, Mężczyzna]
+    zmienna imię      to ""
+    zmienna hasło     to ""
+    zmienna płeć      to nic
+    zmienna zgoda     to fałsz
+    zmienna komunikat to ""
+    zmienna sukces    to fałsz
+  }
+
+  warstwa widoku {
+    szablon status to styl({
+      kolor: wybierz(sukces, "#2e7d32", "#c62828"),
+      tło: wybierz(sukces, "#e8f5e9", "#ffebee"),
+      czcionka: "14px", wypełnienie: "10px", zaokrąglenie: "6px",
+      wyświetlanie: wybierz(komunikat to "", "none", "block")
+    }, pogrubienie(komunikat))
+
+    szablon główny to kolumna({ odstęp: "16px", maxSzerokość: "420px" }, [
+      nagłówek(1, "📋 Logowanie"),
+      poleTekstowe("Użytkownik:", imię),
+      poleMaskowane("Hasło:", hasło),
+      jednokrotnyWybór("Płeć:", { "Kobieta": Płeć.Kobieta, "Mężczyzna": Płeć.Mężczyzna }, płeć),
+      polePtaszek("Akceptuję regulamin", zgoda),
+      wiersz({ odstęp: "10px" }, [
+        przycisk("Wyślij", wyślij, { tło: "#5a7d2a" }), przycisk("Wyczyść", wyczyść, { tło: "#888" })
+      ]),
+      widok(status)
+    ])
+  }
+
+  warstwa logiki {
+    akcja wyślij {
+      jeśli imię to "" { ustaw komunikat na "Podaj imię!" ustaw sukces na fałsz } inaczej {
+      jeśli hasło to "" { ustaw komunikat na "Podaj hasło!" ustaw sukces na fałsz } inaczej {
+      jeśli płeć to nic { ustaw komunikat na "Wybierz płeć!" ustaw sukces na fałsz } inaczej {
+      jeśli zgoda to fałsz { ustaw komunikat na "Zaakceptuj regulamin!" ustaw sukces na fałsz } inaczej {
+        ustaw komunikat na "Sukces!" ustaw sukces na prawda wypisz("Wysłano: " + imię)
+      }}}}
     }
 
-    warstwa widoku {
-        szablon główny to kolumna({ odstęp: "15px", szerokość: "400px" }, [
-            nagłówek(1, "Napisz do nas"),
-            poleTekstowe("Podaj swoje imię:", imię),
-            poleTekstowe("Podaj swój e-mail:", email),
-            jednokrotnyWybór("Wybierz płeć:", { "Kobieta": Płeć.Kobieta, "Mężczyzna": Płeć.Mężczyzna }, płeć),
-            poleZgody("Akceptuję regulamin języka Cebula", zgoda),
-            przycisk("Wyślij formularz", wyślij, { tło: "#e68a00" }),
-            kolor("#d32f2f", pogrubienie(komunikat))
-        ])
+    akcja wyczyść {
+      ustaw imię na ""
+      ustaw hasło na ""
+      ustaw płeć na nic
+      ustaw zgoda na fałsz
+      ustaw komunikat na ""
+      ustaw sukces na fałsz
     }
+  }
+}
 
-    warstwa logiki {
-        akcja wyślij {
-            jeśli imię to "" {
-                ustaw komunikat na "Błąd: Imię jest wymagane!"
-            } inaczej {
-                jeśli płeć to nic {
-                    ustaw komunikat na "Błąd: Wybierz płeć!"
-                } inaczej {
-                    jeśli zgoda to Fałsz {
-                        ustaw komunikat na "Błąd: Brak zgody na regulamin!"
-                    } inaczej {
-                        ustaw komunikat na "Sukces! Wiadomość wysłana."
-                    }
-                }
-            }
-        }
+moduł TreśćLicznik {
+  warstwa danych {
+    parametr startWartość
+    zmienna liczba to 0
+    zmienna timer  to nic
+    zmienna działa to fałsz
+  }
+
+  warstwa widoku {
+    szablon główny to kolumna({ odstęp: "20px", maxSzerokość: "360px" }, [
+      nagłówek(1, "🔢 Timer"),
+      styl({ czcionka: "48px", grubośćCzcionki: "bold", kolor: wybierz(działa, "#5a7d2a", "#333") }, liczba),
+      akapit(wybierz(działa, kolor("#5a7d2a", "⏱ Aktywny"), "Zatrzymany")),
+      wiersz({ odstęp: "10px" }, [
+        przycisk("▶ Start", start, { tło: wybierz(działa, "#aaa", "#5a7d2a") }),
+        przycisk("⏸ Pauza", pauza, { tło: "#e67e22" }),
+        przycisk("↺ Reset", reset, { tło: "#c0392b" })
+      ])
+    ])
+  }
+
+  warstwa logiki {
+    akcja dodaj {
+      ustaw liczba na liczba + 1
     }
+    
+    akcja start {
+      jeśli działa to fałsz {
+        ustaw timer na cyklicznie(1000, dodaj)
+        ustaw działa na prawda
+      }
+    }
+    
+    akcja pauza {
+      anuluj(timer)
+      ustaw timer na nic
+      ustaw działa na fałsz
+    }
+    
+    akcja reset {
+      anuluj(timer)
+      ustaw timer na nic
+      ustaw działa na fałsz
+      ustaw liczba na 0
+    }
+  }
+}
+
+moduł TreśćLista {
+  warstwa danych {
+    stany Priorytet: [Niski, Średni, Wysoki]
+    zmienna zadania to [
+      { tekst: "Zaprojektować składnię", priorytet: Priorytet.Wysoki },
+      { tekst: "Napisać parser",         priorytet: Priorytet.Średni },
+      { tekst: "Zjeść cebulę na surowo", priorytet: Priorytet.Niski }
+    ]
+  }
+
+  warstwa widoku {
+    szablon karta to dla każdego zad z zadania: styl({
+      tło: dopasuj zad.priorytet { gdy Priorytet.Wysoki: "#fff3e0", gdy Priorytet.Średni: "#e8f5e9", gdy Priorytet.Niski: "#f3f3f3" },
+      obramowanie: "1px solid #ddd", zaokrąglenie: "8px", wypełnienie: "12px"
+    }, wiersz({ wyrównanieElementów: "center", odstęp: "10px" }, [
+      kolor(dopasuj zad.priorytet { gdy Priorytet.Wysoki: "#e65100", gdy Priorytet.Średni: "#2e7d32", gdy Priorytet.Niski: "#888" }, 
+        pogrubienie(dopasuj zad.priorytet { gdy Priorytet.Wysoki: "● Wysoki", gdy Priorytet.Średni: "● Średni", gdy Priorytet.Niski: "● Niski" })
+      ),
+      akapit(zad.tekst)
+    ]))
+
+    szablon główny to kolumna({ odstęp: "20px" }, [
+      nagłówek(1, "Lista zadań"),
+      kolumna({ odstęp: "10px" }, [widok(karta)]),
+      dla każdego i z zakres(1, 4): nagłówek(i, "Nagłówek poziomu " + i)
+    ])
+  }
+
+  warstwa logiki {}
 }
