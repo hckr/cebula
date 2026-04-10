@@ -78,6 +78,8 @@ const CebulaEngine = {
     views: new Set(),
     stateVars: new Set(),
     setters: {},
+    currentModule: '',
+    hotReload: false,
   },
 
   init(grammar) {
@@ -97,11 +99,13 @@ const CebulaEngine = {
     return CSS_MAP;
   },
 
-  compile(cebulaCode) {
+  compile(cebulaCode, { hotReload = false } = {}) {
     this.context.enums = {};
     this.context.views = new Set();
     this.context.stateVars = new Set();
     this.context.setters = {};
+    this.context.currentModule = '';
+    this.context.hotReload = hotReload;
 
     const match = this.grammar.match(cebulaCode);
     if (match.succeeded()) {
@@ -206,7 +210,20 @@ const CebulaEngine = {
     const setter = this._setterName(name);
     this.context.stateVars.add(name);
     this.context.setters[name] = setter;
-    return `const [${name}, ${setter}] = React.useState(${initializer});`;
+
+    if (!this.context.hotReload) {
+      return `const [${name}, ${setter}] = React.useState(${initializer});`;
+    }
+
+    const moduleName = this.context.currentModule;
+    const storeKey = `(\`\${_props._ck ?? "${moduleName}"}.${name}\`)`;
+    return [
+      `const [${name}, ${setter}] = React.useState(() => {`,
+      `  const _k = ${storeKey};`,
+      `  return Object.prototype.hasOwnProperty.call(__cebulaHotReloadStore, _k) ? __cebulaHotReloadStore[_k] : (${initializer});`,
+      `});`,
+      `React.useEffect(() => { __cebulaHotReloadStore[${storeKey}] = ${name}; }, [${name}]);`,
+    ].join('\n  ');
   },
 
   _setter(name) {
@@ -246,6 +263,7 @@ const CebulaEngine = {
       Module: (_, id, _1, data, view, logic, _2) => {
         ctx.stateVars = new Set();
         ctx.setters = {};
+        ctx.currentModule = id.sourceString;
 
         const name = id.sourceString;
         const d = data.toJS();
@@ -314,10 +332,7 @@ const CebulaEngine = {
 
       ParamDecl: (_, id) => ({
         type: 'param',
-        code: self._registerStateVar(
-          id.sourceString,
-          `_props.${id.sourceString}`,
-        ),
+        code: `const ${id.sourceString} = _props.${id.sourceString}`,
       }),
 
       VarDecl: (_, id, _2, exp) => ({
@@ -337,11 +352,22 @@ const CebulaEngine = {
         `const ${id.sourceString} = () => { ${stmts(actionStmts)} };`,
 
       // ── List & range helpers ─────────────────────────────────────────────
-      DlaKażdegoExp: (_, _2, varName, _z, list, _colon, body) =>
-        `(${list.toJS()} || []).map((${varName.sourceString}, _i) => {
-          const _el = ${body.toJS()};
+      DlaKażdegoExp: (_, _2, varName, _z, list, _colon, body) => {
+        const bodyJs = body.toJS();
+        const loopBody = ctx.hotReload
+          ? `(() => {
+              const _rawEl = ${bodyJs};
+              if (_rawEl && _rawEl.props && _rawEl.props._ck !== undefined) {
+                return React.cloneElement(_rawEl, { _ck: _rawEl.props._ck + ':' + _i });
+              }
+              return _rawEl;
+            })()`
+          : bodyJs;
+        return `(${list.toJS()} || []).map((${varName.sourceString}, _i) => {
+          const _el = ${loopBody};
           return React.isValidElement(_el) ? React.cloneElement(_el, { key: _el.key ?? _i }) : _el;
-        })`,
+        })`;
+      },
 
       ZakresExp_double: (_, _1, a, _2, b, _3) =>
         `Array.from({ length: Math.max(0, ${b.toJS()} - ${a.toJS()}) }, (_, i) => i + (${a.toJS()}))`,
@@ -433,8 +459,21 @@ const CebulaEngine = {
       },
 
       // ── Components & views ──────────────────────────────────────────────
-      UseModuleExp: (_, id, _1, props) =>
-        `React.createElement(Module_${id.sourceString}, ${props.toJS()})`,
+      UseModuleExp: function (_, id, _1, props) {
+        const offset = this.source.startIdx;
+        const propsJs = props.toJS();
+        if (!ctx.hotReload) {
+          return `React.createElement(Module_${id.sourceString}, ${propsJs})`;
+        }
+        // _ck (cebula-key): stabilny unikalny klucz instancji oparty na pozycji
+        // w kodzie źródłowym. Przeżywa hot-reload bo offset nie zmienia się
+        // gdy edytujesz kod poniżej tego wywołania.
+        const ck = `"użyj@${offset}"`;
+        // Scalamy _ck z propsami użytkownika (props są obiektem JS)
+        const mergedProps =
+          propsJs === '{}' ? `{ _ck: ${ck} }` : `{ ...${propsJs}, _ck: ${ck} }`;
+        return `React.createElement(Module_${id.sourceString}, ${mergedProps})`;
+      },
       ViewRef: (_, _1, id, _2) => `VIEW_${id.sourceString}()`,
       ActionIdent: (id) => id.sourceString,
 

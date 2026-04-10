@@ -5,16 +5,53 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <link rel="stylesheet" href="runtime.css" />
+    <style>
+      #error-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: #fff;
+        z-index: 9999;
+        overflow: auto;
+      }
+    </style>
   </head>
   <body style="margin: 0; font-family: sans-serif">
-    <div
-      id="root"
-      style="
-        height: 100vh;
-        display: flex;
-        flex-direction: column;
-        overflow: auto;
-      "
-    ></div>
+    <div id="root"></div>
+    <div id="error-overlay"></div>
+    <script>
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      const errorOverlay = document.getElementById('error-overlay');
+
+      window.__cebulaHotReloadStore = window.__cebulaHotReloadStore || {};
+
+      function showError(html) {
+        errorOverlay.innerHTML = html;
+        errorOverlay.style.display = 'block';
+      }
+      function hideError() {
+        errorOverlay.style.display = 'none';
+      }
+
+      window.addEventListener('message', (event) => {
+        if (!event.data) {
+          return;
+        }
+        if (event.data.type === 'CODE') {
+          hideError();
+          try {
+            const CebulaApp = eval(event.data.code);
+            root.render(React.createElement(CebulaApp));
+          } catch (err) {
+            console.error('Błąd podczas uruchamiania kodu Cebuli:', err);
+          }
+        } else if (event.data.type === 'ERROR') {
+          showError(event.data.error);
+        }
+      });
+    </script>
   </body>
 </html>

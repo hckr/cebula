@@ -12,7 +12,7 @@
 
     <div class="container">
       <div id="editor-container"></div>
-      <iframe id="output"></iframe>
+      <iframe id="output" src="iframe.html"></iframe>
     </div>
 
     <script type="module">
@@ -56,35 +56,20 @@
       CebulaEditor.init('editor-container', sampleCode, CebulaEngine);
 
       document.getElementById('run-btn').addEventListener('click', () => {
-        const result = CebulaEngine.compile(CebulaEditor.editor.getValue());
+        const result = CebulaEngine.compile(CebulaEditor.editor.getValue(), { hotReload: true });
         const iframe = document.getElementById('output');
 
-        if (!result.success) {
-          // Show error. Remove src so srcdoc takes precedence unambiguously.
-          iframe.removeAttribute('src');
-          iframe.srcdoc = result.error;
-          return;
+        if (result.success) {
+          iframe.contentWindow.postMessage({
+            type: 'CODE',
+            code: result.jsCode,
+          });
+        } else {
+          iframe.contentWindow.postMessage({
+            type: 'ERROR',
+            error: result.error,
+          });
         }
-
-        // Success: clear srcdoc first, otherwise the browser may ignore src.
-        iframe.removeAttribute('srcdoc');
-        iframe.addEventListener(
-          'load',
-          () => {
-            const script =
-              iframe.contentWindow.document.createElement('script');
-            script.textContent = `
-              const CebulaApp = ${result.jsCode};
-              ReactDOM.createRoot(document.getElementById('root')).render(
-                React.createElement(CebulaApp, {})
-              );
-            `;
-            iframe.contentWindow.document.body.appendChild(script);
-          },
-          { once: true },
-        );
-        // Append timestamp to force a fresh navigation even if src was already 'iframe.html'.
-        iframe.src = 'iframe.html?' + Date.now();
       });
     </script>
   </body>
