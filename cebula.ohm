@@ -6,7 +6,8 @@ Cebula {
     LayerView  = "warstwa" "widoku"  "{" ViewStatement*  "}"
     LayerLogic = "warstwa" "logiki"  "{" LogicStatement* "}"
 
-    DataStatement = StanyDecl | ParamDecl | VarDecl
+    DataStatement = StanyDecl | ParamDecl | VarDecl | AkcjaParamDecl
+    AkcjaParamDecl = "akcja" ident
     StanyDecl = "stany"     ident ":" "[" ListOf<ident, ","> ","? "]"
     ParamDecl = "parametr"  ident
     VarDecl   = "zmienna"   ident "to" Exp
@@ -16,6 +17,7 @@ Cebula {
 
     LogicStatement = PrintStmt | AssignStmt | IfStmt | ActionDef | CallStmt
                    | OpóźnijStmt | CyklicznieStmt | AnulujStmt
+                   | FiltrujStmt | PrzekształćStmt
 
     PrintStmt = "wypisz" "(" Exp ")"
 
@@ -25,16 +27,22 @@ Cebula {
     IfStmt    = "jeśli" Exp "{" LogicStatement* "}" ElseClause?
     ElseClause = "inaczej" "{" LogicStatement* "}"
 
-    ActionDef = "akcja"   ident "{" LogicStatement* "}"
+    ActionDef = "akcja"   ident "{" ActionParamDecl* LogicStatement* "}"
+    ActionParamDecl = "parametr" ident
     CallStmt  = "wywołaj" ident
 
     OpóźnijStmt    = "opóźnij"   "(" Exp "," ident ")"
     CyklicznieStmt = "cyklicznie" "(" Exp "," ident ")"
     AnulujStmt     = "anuluj"     "(" Exp ")"
 
+    FiltrujStmt    = "filtruj"    ident "dla" "każdego" ident IndexClause? ":" Exp
+    PrzekształćStmt = "przekształć" ident "dla" "każdego" ident IndexClause? ":" Exp
+
     Exp     = CompExp
     CompExp = AddExp "==" AddExp -- eq
+            | AddExp "!=" AddExp -- neq
             | AddExp "to" AddExp -- toEq
+            | AddExp "to" "nie" AddExp -- toNotEq
             | AddExp ">"  AddExp -- gt
             | AddExp "<"  AddExp -- lt
             | AddExp
@@ -47,10 +55,10 @@ Cebula {
             | MulExp "/" PriExp -- divide
             | PriExp
 
-    PriExp = DlaKażdegoExp | CyklicznieExp | OpóźnijExp
+    PriExp = FiltrujExp | DlaKażdegoExp | WykonajExp | CyklicznieExp | OpóźnijExp
             | RozciągnijExp | WierszExp | KolumnaExp | MatchExp | UseModuleExp | ViewRef
             | ButtonExp | HeaderExp | AkapitExp | BoldExp | ColorExp | ChooseExp
-            | StylExp | ZakresExp
+            | StylExp | ZakresExp | DługośćExp | ElementMemberExp | ElementExp
             | InputExp | PasswordExp | RadioExp | CheckboxExp
             | ObjectLiteral | ArrayExp | string | number | BoolExp | NicExp | MemberAccessExp | ident | BrakExp | ParenExp
 
@@ -70,13 +78,14 @@ Cebula {
     MatchCase     = "gdy"    Exp ":" Exp ","?
     OtherwiseCase = "inaczej" ":" Exp ","?
 
-    UseModuleExp  = "użyj" ident "z" Exp
+    UseModuleExp  = "użyj" ident "z" Exp -- withProps
+                  | "użyj" ident          -- bare
     ObjectLiteral = "{" ListOf<KeyValuePair, ","> ","? "}"
     KeyValuePair  = (propName | string) ":" Exp
     MemberAccessExp = ident ("." propName)+
 
     ActionIdent = ident
-    ActionRef   = ActionIdent | BrakExp
+    ActionRef   = WykonajExp | ActionIdent | BrakExp
 
     ButtonExp = "przycisk" "(" Exp "," ActionRef "," Exp ")" -- props
                 | "przycisk" "(" Exp "," ActionRef ")"       -- simple
@@ -92,14 +101,29 @@ Cebula {
 
     StylExp = "styl" "(" ObjectLiteral "," Exp ")"
 
-    InputExp    = "poleTekstowe"      "(" Exp "," ident "," Exp ")" -- props
-                | "poleTekstowe"      "(" Exp "," ident ")"         -- simple
-    PasswordExp = "poleMaskowane"     "(" Exp "," ident "," Exp ")" -- props
-                | "poleMaskowane"     "(" Exp "," ident ")"         -- simple
-    RadioExp    = "jednokrotnyWybór"  "(" Exp "," ObjectLiteral "," ident ")"
-    CheckboxExp = "polePtaszek"       "(" Exp "," ident ")"
+    DługośćExp   = "długość"     "(" Exp ")"
+    ElementExp   = "element"     "(" Exp "," Exp ")"
+    ElementMemberExp = ElementExp ("." propName)+
 
-    DlaKażdegoExp = "dla" "każdego" ident "z" Exp ":" Exp
+    FiltrujExp = "dla" "każdego" ident "z" Exp IndexClause "filtruj" ":" Exp -- withIdx
+               | "dla" "każdego" ident "z" Exp             "filtruj" ":" Exp -- noIdx
+
+    IndexClause = "z" "indeksem" ident
+
+    DlaKażdegoExp = "dla" "każdego" ident "z" Exp IndexClause ":" Exp -- withIdx
+                  | "dla" "każdego" ident "z" Exp             ":" Exp -- noIdx
+
+    WykonajExp    = "wykonaj" ident "z" ObjectLiteral -- withProps
+                  | "wykonaj" ident                   -- bare
+
+    BindTarget = MemberAccessExp | ident
+
+    InputExp    = "poleTekstowe"      "(" Exp "," BindTarget "," Exp ")" -- props
+                | "poleTekstowe"      "(" Exp "," BindTarget ")"         -- simple
+    PasswordExp = "poleMaskowane"     "(" Exp "," BindTarget "," Exp ")" -- props
+                | "poleMaskowane"     "(" Exp "," BindTarget ")"         -- simple
+    RadioExp    = "jednokrotnyWybór"  "(" Exp "," ObjectLiteral "," BindTarget ")"
+    CheckboxExp = "polePtaszek"       "(" Exp "," BindTarget ")"
 
     CyklicznieExp = "cyklicznie" "(" Exp "," ident ")"
     OpóźnijExp    = "opóźnij"   "(" Exp "," ident ")"
@@ -116,8 +140,10 @@ Cebula {
             | "ustaw" | "na" | "akapit" | "nic" | "poleTekstowe" | "poleMaskowane"
             | "jednokrotnyWybór" | "polePtaszek" | "zakres"
             | "opóźnij" | "cyklicznie" | "anuluj" | "styl"
-            | "dla" | "każdego" | "prawda" | "fałsz"
-    number = digit+ ("." digit+)?
+            | "dla" | "każdego" | "prawda" | "fałsz" | "nie"
+            | "długość" | "element" | "filtruj" | "wykonaj"
+            | "indeksem" | "przekształć"
+    number = "-"? digit+ ("." digit+)?
     string = "\"" (~"\"" any)* "\""
     space += comment
     comment = "//" (~"\n" any)* "\n"

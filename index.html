@@ -49,14 +49,16 @@
 
       const [grammar, sampleCode] = await Promise.all([
         fetch('cebula.ohm').then((r) => r.text()),
-        fetch('example.cebula').then((r) => r.text()),
+        fetch('todo.cebula').then((r) => r.text()),
       ]);
 
       CebulaEngine.init(grammar);
       CebulaEditor.init('editor-container', sampleCode, CebulaEngine);
 
       document.getElementById('run-btn').addEventListener('click', () => {
-        const result = CebulaEngine.compile(CebulaEditor.editor.getValue(), { hotReload: true });
+        const result = CebulaEngine.compile(CebulaEditor.editor.getValue(), {
+          hotReload: true,
+        });
         const iframe = document.getElementById('output');
 
         if (result.success) {

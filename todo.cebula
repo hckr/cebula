@@ -1,0 +1,117 @@
+moduł główny {
+  warstwa danych {
+    zmienna zadania to [
+      { tekst: "Zaprojektować składnię", zrobione: prawda },
+      { tekst: "Napisać parser", zrobione: prawda },
+      { tekst: "Zjeść cebulę na surowo", zrobione: fałsz }
+    ]
+    zmienna noweTekst to ""
+  }
+
+  warstwa widoku {
+    szablon podsumowanie to akapit(
+      długość(dla każdego zad z zadania filtruj: zad.zrobione) + " / " + długość(zadania) + " ukończone"
+    )
+
+    szablon główny to kolumna({
+      maxSzerokość: "520px",
+      wypełnienie: "24px",
+      odstęp: "16px",
+    }, [
+      nagłówek(1, "Do zrobienia"),
+      widok(podsumowanie),
+      wiersz({ odstęp: "8px", wyrównanieElementów: "center" }, [
+        poleTekstowe("Nowe zadanie", noweTekst),
+        przycisk("Dodaj ＋", dodaj, {
+          tło: "#4a7c2f",
+          kolor: "#fff",
+          wypełnienie: "8px 16px",
+          zaokrąglenie: "6px",
+          kursor: "pointer",
+        })
+      ]),
+      kolumna({ odstęp: "8px" }, [
+        dla każdego zad z zadania z indeksem ind: użyj ZadanieNaLiście z {
+          tekst: zad.tekst,
+          zrobione: zad.zrobione,
+          gdyPrzełącz: wykonaj przełącz z { indeks: ind },
+          gdyUsuń: wykonaj usuń z { indeks: ind }
+        }
+      ])
+    ])
+  }
+
+  warstwa logiki {
+    akcja dodaj {
+      jeśli noweTekst to "" {} inaczej {
+        ustaw zadania na zadania + [{ tekst: noweTekst, zrobione: fałsz }]
+        ustaw noweTekst na ""
+      }
+    }
+
+    akcja przełącz {
+      parametr indeks
+      przekształć zadania dla każdego zad z indeksem ind: wybierz(
+        ind to indeks,
+        { tekst: zad.tekst, zrobione: wybierz(zad.zrobione, fałsz, prawda) },
+        zad
+      )
+    }
+
+    akcja usuń {
+      parametr indeks
+      filtruj zadania dla każdego zad z indeksem ind: ind to nie indeks
+    }
+  }
+}
+
+
+moduł ZadanieNaLiście {
+  warstwa danych {
+    parametr tekst
+    parametr zrobione
+    akcja gdyPrzełącz
+    akcja gdyUsuń
+  }
+
+  warstwa widoku {
+    szablon główny to wiersz({
+      odstęp: "10px",
+      wyrównanieElementów: "center",
+      tło: wybierz(zrobione, "#edf7e3", "#fafafa"),
+      wypełnienie: "10px 14px",
+      zaokrąglenie: "8px",
+      obramowanie: "1px solid #ddd",
+      przejście: "background 0.2s",
+    }, [
+      rozciągnij({ proporcja: "1" },
+        kolor(
+          wybierz(zrobione, "#888", "#222"),
+          wybierz(zrobione, pogrubienie(tekst), tekst)
+        )
+      ),
+      przycisk(
+        wybierz(zrobione, "↩", "✓"),
+        gdyPrzełącz,
+        {
+          tło: wybierz(zrobione, "#999", "#4a7c2f"),
+          kolor: "#fff",
+          wypełnienie: "4px 12px",
+          zaokrąglenie: "5px",
+          kursor: "pointer",
+          obramowanie: "none",
+        }
+      ),
+      przycisk("🗑", gdyUsuń, {
+        tło: "#c0392b",
+        kolor: "#fff",
+        wypełnienie: "4px 10px",
+        zaokrąglenie: "5px",
+        kursor: "pointer",
+        obramowanie: "none",
+      })
+    ])
+  }
+
+  warstwa logiki {}
+}

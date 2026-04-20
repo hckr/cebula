@@ -4,6 +4,7 @@ const TOKEN_RE = new RegExp(
   [
     /\/\/[^\n]*/.source, // comment
     /"(?:[^"\\]|\\.)*"/.source, // string
+    /!=/.source, // not-equal op
     /==/.source, // double-char op first
     /[{}()\[\],:.]/.source, // punctuation
     /[+\-*\/<>]/.source, // operators
@@ -34,7 +35,7 @@ function _tokenize(src) {
     else if (v === ',') type = 'comma';
     else if (v === '.') type = 'dot';
     else if (v === ':') type = 'colon';
-    else if (/^[+\-*\/<>]$|^==$/.test(v)) type = 'op';
+    else if (/^[+\-*\/<>]$|^==$|^!=$/.test(v)) type = 'op';
     else if (/^[0-9]/.test(v)) type = 'number';
     else if (/^[a-zA-Z_]/.test(v) || POLISH.includes(v[0])) type = 'word';
     else type = 'other';
@@ -60,6 +61,7 @@ const STMT_KW = new Set([
   'opóźnij',
   'cyklicznie',
   'anuluj',
+  'przekształć',
 ]);
 
 // ── Multi-line container detection ───────────────────────────────────────────

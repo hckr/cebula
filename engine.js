@@ -77,6 +77,7 @@ const CebulaEngine = {
     enums: {},
     views: new Set(),
     stateVars: new Set(),
+    params: new Set(),
     setters: {},
     currentModule: '',
     hotReload: false,
@@ -86,6 +87,7 @@ const CebulaEngine = {
     this.grammar = ohm.grammar(grammar);
     this.semantics = this.grammar.createSemantics();
     this._attachCompilerRules();
+    this._attachScanDeclsOperation();
   },
 
   getKeywords() {
@@ -103,13 +105,16 @@ const CebulaEngine = {
     this.context.enums = {};
     this.context.views = new Set();
     this.context.stateVars = new Set();
+    this.context.params = new Set();
     this.context.setters = {};
     this.context.currentModule = '';
     this.context.hotReload = hotReload;
+    this.context.moduleDecls = {};
 
     const match = this.grammar.match(cebulaCode);
     if (match.succeeded()) {
       try {
+        this.context.moduleDecls = this.semantics(match).scanDecls();
         return { success: true, jsCode: this.semantics(match).toJS() };
       } catch (error) {
         return {
@@ -234,8 +239,114 @@ const CebulaEngine = {
     return 'set' + name.charAt(0).toUpperCase() + name.slice(1);
   },
 
+  _bindTargetGetSet(sourceStr) {
+    const root = sourceStr.split('.')[0];
+    if (!this.context.stateVars.has(root)) {
+      throw new Error(
+        `"${sourceStr}" nie może być użyte jako cel wiązania pola formularza.\n` +
+          `"${root}" nie jest zmienną reaktywną – parametry i stałe są tylko do odczytu.\n` +
+          `Wskazówka: Zadeklaruj "zmienna ${root} to ..." w warstwie danych.`,
+      );
+    }
+    if (sourceStr.includes('.')) {
+      const parts = sourceStr.split('.');
+      const field = parts.slice(1).join('.');
+      const setter = this._setter(root);
+      return {
+        getter: sourceStr,
+        setter: `(v) => ${setter}(prev => ({...prev, ${field}: v}))`,
+      };
+    }
+    return {
+      getter: sourceStr,
+      setter: this._setter(sourceStr),
+    };
+  },
+
   _timerCall(fn, intervalOrDelay, action) {
-    return `${fn}(${action.sourceString}, ${intervalOrDelay.toJS()})`;
+    if (!this.context.hotReload) {
+      return `${fn}(${action.sourceString}, ${intervalOrDelay.toJS()})`;
+    }
+    const actionKey = `"${this.context.currentModule}.${action.sourceString}"`;
+    return `${fn}(() => { const _a = __cebulaHotReloadActions[${actionKey}]; if (_a) _a(); }, ${intervalOrDelay.toJS()})`;
+  },
+
+  // ── Object key extraction helper (used for compile-time param validation) ──
+
+  _getObjectKeys(objNode) {
+    // objNode: ObjectLiteral CST node
+    // ObjectLiteral = "{" ListOf<KeyValuePair, ","> ","? "}"
+    const list = objNode.children[1];
+    return list.asIteration().children.map((kv) => {
+      // KeyValuePair = (propName | string) ":" Exp
+      const keyStr = kv.children[0].sourceString.trim();
+      return keyStr.startsWith('"') ? keyStr.slice(1, -1) : keyStr;
+    });
+  },
+
+  _unwrapToObjectLiteral(node) {
+    // Traverse Exp → CompExp → AddExp → MulExp → PriExp → ObjectLiteral
+    // Each passthrough step has exactly one child.
+    let cur = node;
+    while (cur && cur.ctorName !== 'ObjectLiteral') {
+      if (!cur.children || cur.children.length !== 1) return null;
+      cur = cur.children[0];
+    }
+    return cur && cur.ctorName === 'ObjectLiteral' ? cur : null;
+  },
+
+  // ── Compile-time declarations pre-pass ───────────────────────────────────
+
+  _attachScanDeclsOperation() {
+    const self = this;
+    this.semantics.addOperation('scanDecls', {
+      Program(modules) {
+        return Object.assign({}, ...modules.children.map((m) => m.scanDecls()));
+      },
+      Module(_kw, id, _lb, data, _view, logic, _rb) {
+        const name = id.sourceString;
+        const params = []; // { name, type: 'param' | 'action' }
+        const actionParams = {}; // actionName -> [paramName, ...]
+
+        // Scan warstwa danych: LayerData = "warstwa" "danych" "{" DataStatement* "}"
+        data.children[3].children.forEach((stmt) => {
+          const child = stmt.children[0];
+          if (child.ctorName === 'ParamDecl') {
+            params.push({
+              name: child.children[1].sourceString,
+              type: 'param',
+            });
+          } else if (child.ctorName === 'AkcjaParamDecl') {
+            params.push({
+              name: child.children[1].sourceString,
+              type: 'action',
+            });
+          }
+        });
+
+        // Scan warstwa logiki: LayerLogic = "warstwa" "logiki" "{" LogicStatement* "}"
+        logic.children[3].children.forEach((stmt) => {
+          const child = stmt.children[0];
+          if (child.ctorName === 'ActionDef') {
+            // ActionDef = "akcja" ident "{" ActionParamDecl* LogicStatement* "}"
+            const actionName = child.children[1].sourceString;
+            const paramDecls = child.children[3].children; // ActionParamDecl*
+            // ActionParamDecl = "parametr" ident  →  children[1] = ident
+            actionParams[actionName] = paramDecls.map(
+              (p) => p.children[1].sourceString,
+            );
+          }
+        });
+
+        return { [name]: { params, actionParams } };
+      },
+      _nonterminal() {
+        return {};
+      },
+      _terminal() {
+        return {};
+      },
+    });
   },
 
   _attachCompilerRules() {
@@ -249,7 +360,7 @@ const CebulaEngine = {
           const _plusExp = (a, b) => {
             const isPrimitive = (v) => (typeof v !== 'object' || v === null);
             if (isPrimitive(a) && isPrimitive(b)) {
-              return a + b; // Zwykła konkatenacja/dodawanie dla typów prostych
+              return a + b;
             }
             const arrA = Array.isArray(a) ? a : [a];
             const arrB = Array.isArray(b) ? b : [b];
@@ -262,6 +373,7 @@ const CebulaEngine = {
 
       Module: (_, id, _1, data, view, logic, _2) => {
         ctx.stateVars = new Set();
+        ctx.params = new Set();
         ctx.setters = {};
         ctx.currentModule = id.sourceString;
 
@@ -270,7 +382,20 @@ const CebulaEngine = {
         const v = view.toJS();
         const l = logic.toJS();
 
-        const body = [d.params, d.vars, v, l]
+        const paramValidations = d.paramNames.map(
+          (p) =>
+            `if(!Object.prototype.hasOwnProperty.call(_props,'${p}'))throw new Error('Moduł "${name}": brakuje parametru \\"${p}\\"');`,
+        );
+        const actionParamValidations = d.actionParamNames.map(
+          (p) =>
+            `if(typeof _props['${p}']!=='function')throw new Error('Moduł "${name}": parametr akcji \\"${p}\\" musi być funkcją (użyj: wykonaj ... z {...})');`,
+        );
+        const validationCode = [
+          ...paramValidations,
+          ...actionParamValidations,
+        ].join('\n  ');
+
+        const body = [validationCode, d.params, d.vars, v, l]
           .filter((s) => s && s.trim())
           .join('\n  ');
 
@@ -285,16 +410,27 @@ const CebulaEngine = {
         const enums = [],
           params = [],
           vars = [];
+        const paramNames = [],
+          actionParamNames = [];
         dataStmts.children.forEach((s) => {
           const r = s.toJS();
           if (r.type === 'enum') enums.push(r.code);
-          if (r.type === 'param') params.push(r.code);
+          if (r.type === 'param') {
+            params.push(r.code);
+            paramNames.push(r.name);
+          }
+          if (r.type === 'actionParam') {
+            params.push(r.code);
+            actionParamNames.push(r.name);
+          }
           if (r.type === 'var') vars.push(r.code);
         });
         return {
           enums: enums.join('\n'),
           params: params.join('\n  '),
           vars: vars.join('\n  '),
+          paramNames,
+          actionParamNames,
         };
       },
 
@@ -330,10 +466,23 @@ const CebulaEngine = {
         };
       },
 
-      ParamDecl: (_, id) => ({
-        type: 'param',
-        code: `const ${id.sourceString} = _props.${id.sourceString}`,
-      }),
+      ParamDecl: (_, id) => {
+        ctx.params.add(id.sourceString);
+        return {
+          type: 'param',
+          name: id.sourceString,
+          code: `const ${id.sourceString} = _props.${id.sourceString}`,
+        };
+      },
+
+      AkcjaParamDecl: (_, id) => {
+        ctx.params.add(id.sourceString);
+        return {
+          type: 'actionParam',
+          name: id.sourceString,
+          code: `const ${id.sourceString} = _props.${id.sourceString}`,
+        };
+      },
 
       VarDecl: (_, id, _2, exp) => ({
         type: 'var',
@@ -348,11 +497,42 @@ const CebulaEngine = {
         return `const VIEW_${id.sourceString} = () => ${exp.toJS()};`;
       },
 
-      ActionDef: (_, id, _1, actionStmts, _2) =>
-        `const ${id.sourceString} = () => { ${stmts(actionStmts)} };`,
+      ActionDef: (_, id, _1, paramDecls, actionStmts, _2) => {
+        const name = id.sourceString;
+        const paramNames = paramDecls.children.map((p) => p.toJS());
+
+        const hasParams = paramNames.length > 0;
+        const validation = paramNames
+          .map(
+            (p) =>
+              `if(!Object.prototype.hasOwnProperty.call(_params,'${p}'))throw new Error('Akcja \\"${name}\\": brakuje parametru \\"${p}\\"');`,
+          )
+          .join(' ');
+        const paramDeclCode = paramNames
+          .map((p) => `const ${p}=_params.${p};`)
+          .join(' ');
+
+        const argList = hasParams ? `(_params = {})` : `()`;
+        const paramBody = hasParams ? `${validation} ${paramDeclCode} ` : '';
+
+        const body = `const ${name} = ${argList} => { ${paramBody}${stmts(actionStmts)} };`;
+        if (!ctx.hotReload) return body;
+        const key = `"${ctx.currentModule}.${name}"`;
+        return `${body} __cebulaHotReloadActions[${key}] = ${name};`;
+      },
+
+      ActionParamDecl: (_, id) => id.sourceString,
+
+      CallStmt: (_, id) => {
+        const name = id.sourceString;
+        if (ctx.params.has(name)) {
+          return `(typeof ${name} === 'function' ? ${name}() : void 0)`;
+        }
+        return `${name}()`;
+      },
 
       // ── List & range helpers ─────────────────────────────────────────────
-      DlaKażdegoExp: (_, _2, varName, _z, list, _colon, body) => {
+      DlaKażdegoExp_noIdx: (_, _2, varName, _z, list, _colon, body) => {
         const bodyJs = body.toJS();
         const loopBody = ctx.hotReload
           ? `(() => {
@@ -367,6 +547,125 @@ const CebulaEngine = {
           const _el = ${loopBody};
           return React.isValidElement(_el) ? React.cloneElement(_el, { key: _el.key ?? _i }) : _el;
         })`;
+      },
+
+      DlaKażdegoExp_withIdx: (
+        _,
+        _2,
+        varName,
+        _z,
+        list,
+        indexClause,
+        _colon,
+        body,
+      ) => {
+        const v = varName.sourceString;
+        const idxVar = indexClause.children[2].sourceString;
+        const bodyJs = body.toJS();
+        const loopBody = ctx.hotReload
+          ? `(() => {
+              const _rawEl = ${bodyJs};
+              if (_rawEl && _rawEl.props && _rawEl.props._ck !== undefined) {
+                return React.cloneElement(_rawEl, { _ck: _rawEl.props._ck + ':' + ${idxVar} });
+              }
+              return _rawEl;
+            })()`
+          : bodyJs;
+        return `(${list.toJS()} || []).map((${v}, ${idxVar}) => {
+          const _el = ${loopBody};
+          return React.isValidElement(_el) ? React.cloneElement(_el, { key: _el.key ?? ${idxVar} }) : _el;
+        })`;
+      },
+
+      FiltrujExp_noIdx: (_, _2, varName, _z, list, _f, _colon, condition) =>
+        `(${list.toJS()} || []).filter((${varName.sourceString}) => ${condition.toJS()})`,
+
+      FiltrujExp_withIdx: (
+        _,
+        _2,
+        varName,
+        _z,
+        list,
+        indexClause,
+        _f,
+        _colon,
+        condition,
+      ) => {
+        const idxVar = indexClause.children[2].sourceString;
+        return `(${list.toJS()} || []).filter((${varName.sourceString}, ${idxVar}) => ${condition.toJS()})`;
+      },
+
+      // IndexClause is only accessed via its parent's children[], no standalone handler needed.
+
+      FiltrujStmt: (
+        _kw,
+        target,
+        _dla,
+        _każdego,
+        varName,
+        indexClauseOpt,
+        _colon,
+        condition,
+      ) => {
+        const name = target.sourceString;
+        const setter = self._setter(name);
+        const v = varName.sourceString;
+        const hasIdx = indexClauseOpt.children.length > 0;
+        const idxVar = hasIdx
+          ? indexClauseOpt.children[0].children[2].sourceString
+          : null;
+        const args = hasIdx ? `(${v}, ${idxVar})` : `(${v})`;
+        return `${setter}(prev => prev.filter(${args} => ${condition.toJS()}))`;
+      },
+
+      PrzekształćStmt: (
+        _kw,
+        target,
+        _dla,
+        _każdego,
+        varName,
+        indexClauseOpt,
+        _colon,
+        body,
+      ) => {
+        const name = target.sourceString;
+        const setter = self._setter(name);
+        const v = varName.sourceString;
+        const hasIdx = indexClauseOpt.children.length > 0;
+        const idxVar = hasIdx
+          ? indexClauseOpt.children[0].children[2].sourceString
+          : null;
+        const args = hasIdx ? `(${v}, ${idxVar})` : `(${v})`;
+        return `${setter}(prev => prev.map(${args} => ${body.toJS()}))`;
+      },
+
+      WykonajExp_withProps: (_, id, _z, props) => {
+        const actionName = id.sourceString;
+        const declaredParams =
+          ctx.moduleDecls?.[ctx.currentModule]?.actionParams?.[actionName];
+        if (declaredParams !== undefined) {
+          const provided = self._getObjectKeys(props);
+          const missing = declaredParams.filter((p) => !provided.includes(p));
+          if (missing.length > 0)
+            throw new Error(
+              `wykonaj "${actionName}": brakuje parametrów: ${missing.map((p) => `"${p}"`).join(', ')}`,
+            );
+        }
+        return `(() => ${actionName}(${props.toJS()}))`;
+      },
+      WykonajExp_bare: (_, id) => `(() => ${id.sourceString}())`,
+
+      DługośćExp: (_, _1, exp, _2) => `((${exp.toJS()}) || []).length`,
+
+      ElementExp: (_, _1, list, _2, idx, _3) =>
+        `((${list.toJS()}) || [])[${idx.toJS()}]`,
+
+      ElementMemberExp: (elemExp, _dots, props) => {
+        const fields = props
+          .asIteration()
+          .children.map((p) => p.sourceString)
+          .join('.');
+        return `(${elemExp.toJS()}).${fields}`;
       },
 
       ZakresExp_double: (_, _1, a, _2, b, _3) =>
@@ -417,7 +716,6 @@ const CebulaEngine = {
         return `if(${exp.toJS()}){${stmts(ifStmts)}} ${elseJs}`;
       },
       ElseClause: (_, _1, elseStmts, _2) => `else { ${stmts(elseStmts)} }`,
-      CallStmt: (_, id) => `${id.sourceString}()`,
       PrintStmt: (_, _1, exp, _2) => `console.log(${exp.toJS()})`,
 
       // ── Layout ──────────────────────────────────────────────────────────
@@ -459,21 +757,45 @@ const CebulaEngine = {
       },
 
       // ── Components & views ──────────────────────────────────────────────
-      UseModuleExp: function (_, id, _1, props) {
+      UseModuleExp_withProps: function (_, id, _z, props) {
         const offset = this.source.startIdx;
+        const moduleName = id.sourceString;
+        const decls = ctx.moduleDecls?.[moduleName];
+        if (decls) {
+          const objNode = self._unwrapToObjectLiteral(props);
+          const provided = objNode ? self._getObjectKeys(objNode) : null;
+          if (provided !== null) {
+            const missing = decls.params
+              .filter((p) => !provided.includes(p.name))
+              .map(
+                (p) =>
+                  `"${p.name}" (${p.type === 'action' ? 'akcja' : 'parametr'})`,
+              );
+            if (missing.length > 0)
+              throw new Error(
+                `użyj ${moduleName}: brakuje: ${missing.join(', ')}`,
+              );
+          }
+        }
         const propsJs = props.toJS();
         if (!ctx.hotReload) {
-          return `React.createElement(Module_${id.sourceString}, ${propsJs})`;
+          return `React.createElement(Module_${moduleName}, ${propsJs})`;
         }
-        // _ck (cebula-key): stabilny unikalny klucz instancji oparty na pozycji
-        // w kodzie źródłowym. Przeżywa hot-reload bo offset nie zmienia się
-        // gdy edytujesz kod poniżej tego wywołania.
         const ck = `"użyj@${offset}"`;
-        // Scalamy _ck z propsami użytkownika (props są obiektem JS)
         const mergedProps =
           propsJs === '{}' ? `{ _ck: ${ck} }` : `{ ...${propsJs}, _ck: ${ck} }`;
-        return `React.createElement(Module_${id.sourceString}, ${mergedProps})`;
+        return `React.createElement(Module_${moduleName}, ${mergedProps})`;
       },
+
+      UseModuleExp_bare: function (_, id) {
+        const offset = this.source.startIdx;
+        if (!ctx.hotReload) {
+          return `React.createElement(Module_${id.sourceString}, {})`;
+        }
+        const ck = `"użyj@${offset}"`;
+        return `React.createElement(Module_${id.sourceString}, { _ck: ${ck} })`;
+      },
+
       ViewRef: (_, _1, id, _2) => `VIEW_${id.sourceString}()`,
       ActionIdent: (id) => id.sourceString,
 
@@ -492,42 +814,46 @@ const CebulaEngine = {
         `React.createElement('span', { style: { color: ${col.toJS()} } }, ${txt.toJS()})`,
 
       // ── Form inputs ─────────────────────────────────────────────────────
+      BindTarget: function (_) {
+        return this.sourceString;
+      },
+
       InputExp_props: (_, _1, label, _2, varName, _3, props, _4) => {
-        const name = varName.sourceString;
+        const { getter, setter } = self._bindTargetGetSet(varName.sourceString);
         return `React.createElement('label', { className: 'cebula-field-wrap' },
           React.createElement('span', { className: 'cebula-label-text' }, ${label.toJS()}),
-          React.createElement('input', { type: 'text', className: 'cebula-input', value: ${name} || '', onChange: e => ${self._setter(name)}(e.target.value), style: ${props.toJS()} })
+          React.createElement('input', { type: 'text', className: 'cebula-input', value: ${getter} || '', onChange: e => (${setter})(e.target.value), style: ${props.toJS()} })
         )`;
       },
       InputExp_simple: (_, _1, label, _2, varName, _3) => {
-        const name = varName.sourceString;
+        const { getter, setter } = self._bindTargetGetSet(varName.sourceString);
         return `React.createElement('label', { className: 'cebula-field-wrap' },
           React.createElement('span', { className: 'cebula-label-text' }, ${label.toJS()}),
-          React.createElement('input', { type: 'text', className: 'cebula-input', value: ${name} || '', onChange: e => ${self._setter(name)}(e.target.value) })
+          React.createElement('input', { type: 'text', className: 'cebula-input', value: ${getter} || '', onChange: e => (${setter})(e.target.value) })
         )`;
       },
       PasswordExp_props: (_, _1, label, _2, varName, _3, props, _4) => {
-        const name = varName.sourceString;
+        const { getter, setter } = self._bindTargetGetSet(varName.sourceString);
         return `React.createElement('label', { className: 'cebula-field-wrap' },
           React.createElement('span', { className: 'cebula-label-text' }, ${label.toJS()}),
-          React.createElement('input', { type: 'password', className: 'cebula-input', value: ${name} || '', onChange: e => ${self._setter(name)}(e.target.value), style: ${props.toJS()} })
+          React.createElement('input', { type: 'password', className: 'cebula-input', value: ${getter} || '', onChange: e => (${setter})(e.target.value), style: ${props.toJS()} })
         )`;
       },
       PasswordExp_simple: (_, _1, label, _2, varName, _3) => {
-        const name = varName.sourceString;
+        const { getter, setter } = self._bindTargetGetSet(varName.sourceString);
         return `React.createElement('label', { className: 'cebula-field-wrap' },
           React.createElement('span', { className: 'cebula-label-text' }, ${label.toJS()}),
-          React.createElement('input', { type: 'password', className: 'cebula-input', value: ${name} || '', onChange: e => ${self._setter(name)}(e.target.value) })
+          React.createElement('input', { type: 'password', className: 'cebula-input', value: ${getter} || '', onChange: e => (${setter})(e.target.value) })
         )`;
       },
       RadioExp: (_, _1, label, _2, opts, _3, varName, _4) => {
-        const name = varName.sourceString;
+        const { getter, setter } = self._bindTargetGetSet(varName.sourceString);
         return `React.createElement('fieldset', { className: 'cebula-fieldset' },
           React.createElement('legend', { className: 'cebula-legend' }, ${label.toJS()}),
           React.createElement('div', { className: 'cebula-radio-group' },
             Object.entries(${opts.toJS()}).map(([k, v]) =>
               React.createElement('label', { key: k, className: 'cebula-check-label' },
-                React.createElement('input', { type: 'radio', name: "${name}", value: v, checked: v === ${name}, onChange: e => ${self._setter(name)}(e.target.value) }),
+                React.createElement('input', { type: 'radio', value: v, checked: v === ${getter}, onChange: e => (${setter})(e.target.value) }),
                 k
               )
             )
@@ -535,9 +861,9 @@ const CebulaEngine = {
         )`;
       },
       CheckboxExp: (_, _1, label, _2, varName, _3) => {
-        const name = varName.sourceString;
+        const { getter, setter } = self._bindTargetGetSet(varName.sourceString);
         return `React.createElement('label', { className: 'cebula-check-label' },
-          React.createElement('input', { type: 'checkbox', checked: !!${name}, onChange: e => ${self._setter(name)}(e.target.checked) }),
+          React.createElement('input', { type: 'checkbox', checked: !!${getter}, onChange: e => (${setter})(e.target.checked) }),
           React.createElement('span', { className: 'cebula-label-text' }, ${label.toJS()})
         )`;
       },
@@ -548,7 +874,9 @@ const CebulaEngine = {
         `(${cond.toJS()} ? ${t.toJS()} : ${f.toJS()})`,
 
       CompExp_eq: (a, _, b) => `${a.toJS()} == ${b.toJS()}`,
+      CompExp_neq: (a, _, b) => `${a.toJS()} != ${b.toJS()}`,
       CompExp_toEq: (a, _, b) => `${a.toJS()} === ${b.toJS()}`,
+      CompExp_toNotEq: (a, _to, _nie, b) => `${a.toJS()} !== ${b.toJS()}`,
       CompExp_gt: (a, _, b) => `${a.toJS()} > ${b.toJS()}`,
       CompExp_lt: (a, _, b) => `${a.toJS()} < ${b.toJS()}`,
 
@@ -578,7 +906,7 @@ const CebulaEngine = {
       string: function (_o, _c, _q) {
         return this.sourceString;
       },
-      number: function (_i, _d, _f) {
+      number: function (_s, _i, _d, _f) {
         return this.sourceString;
       },
     });
